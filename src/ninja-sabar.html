@@ -481,6 +481,7 @@ class Player {
     else this.buffer = PHYS.buffer;
   }
   doJump(dbl) {
+    this.soloAir = dbl && this.jumps === 0; // one tap in mid-air after walking off an edge
     this.vy = dbl ? PHYS.dblV : PHYS.jumpV; this.onGround = false; this.plat = null; this.coyote = 0; this.buffer = 0;
     this.jumps = dbl ? 2 : 1; this.sliding = false; this.justJumped = true; this.airT = 0; this.jumpStartY = this.y;
     this.w.emit(dbl ? 'double' : 'jump', { x: this.x, y: this.y });
@@ -603,18 +604,31 @@ class JumpSpike extends Ob {
   }
 }
 
-// 2. Expanding pit
+// 2. Expanding pit: widens on approach, then the far edge slides out once more when the player jumps,
+//    just past single-jump reach from that take-off point. A double jump still clears it.
+const SINGLE_AIR = 2 * -PHYS.jumpV / PHYS.g;
 class ExpandPit extends Ob {
   constructor(w, x, s) { super(w, x); this.cause = 'expandPit'; this.hole = { x1: x, x2: x + 16, cause: 'expandPit' }; w.holes.push(this.hole);
-    this.W = clamp(s * 0.38, 52, 76); this.tx1 = x - 14; this.tx2 = this.tx1 + this.W; }
+    this.W = clamp(s * 0.42, 58, 96); this.tx1 = x - 14; this.tx2 = this.tx1 + this.W; this.shifted = false; this.shT = -1; this.sx0 = 0; this.sx1 = 0; }
   update(dt) {
-    super.update(dt);
-    if (this.st === 'idle' && this.d < this.w.speed * 0.5 + 8) { this.set('grow'); this.trigger(); }
-    if (this.st === 'grow') { const k = clamp(this.stT / 0.14, 0, 1); this.hole.x1 = lerp(this.x, this.tx1, k); this.hole.x2 = lerp(this.x + 16, this.tx2, k); if (Math.random() < 0.6) this.w.emit('debris', { x: this.hole.x1 + Math.random() * (this.hole.x2 - this.hole.x1), y: GY }); if (k >= 1) this.set('done'); }
+    super.update(dt); const p = this.p, s = this.w.speed;
+    if (this.st === 'idle' && this.d < s * 0.5 + 8) { this.set('grow'); this.trigger(); }
+    if (this.st === 'grow') { const k = clamp(this.stT / 0.14, 0, 1); this.hole.x1 = lerp(this.x, this.tx1, k); if (!this.shifted) this.hole.x2 = lerp(this.x + 16, this.tx2, k); if (Math.random() < 0.6) this.w.emit('debris', { x: this.hole.x1 + Math.random() * (this.hole.x2 - this.hole.x1), y: GY }); if (k >= 1) this.set('done'); }
+    // the troll: jump detected -> push the far edge just beyond where a single jump lands
+    if (!this.shifted && p.justJumped && (p.jumps === 1 || p.soloAir) && p.x > this.tx1 - s * 0.35 && p.x < this.tx2) {
+      if (this.st === 'idle') { this.set('grow'); }
+      const air = p.jumps === 1 ? SINGLE_AIR : (-PHYS.dblV + Math.sqrt(PHYS.dblV * PHYS.dblV + 2 * PHYS.g * Math.max(0, GY - p.y))) / PHYS.g;
+      const need = p.x + s * air + 3 + 10;
+      this.shifted = true; this.sx0 = this.tx2; this.sx1 = Math.max(this.tx2 + 10, need); this.shT = 0; this.trigger();
+    }
+    if (this.shT >= 0) { this.shT += dt; const k = clamp(this.shT / 0.15, 0, 1); this.hole.x2 = lerp(this.sx0, this.sx1, 1 - (1 - k) * (1 - k)); if (k < 1 && Math.random() < 0.7) this.w.emit('debris', { x: this.hole.x2 - Math.random() * 8, y: GY }); }
   }
   touch() { return false; }
-  right() { return this.tx2 + 10; }
-  draw(r) { if (this.st === 'idle' && Math.floor(this.t * 3) % 4 === 0) { r.px(this.x - 3, GY + 1, 2, 1, '#3a2418'); r.px(this.x + 18, GY + 2, 2, 1, '#3a2418'); } }
+  right() { return Math.max(this.tx2, this.hole.x2) + 10; }
+  draw(r) {
+    if (this.st === 'idle' && Math.floor(this.t * 3) % 4 === 0) { r.px(this.x - 3, GY + 1, 2, 1, '#3a2418'); r.px(this.x + 18, GY + 2, 2, 1, '#3a2418'); }
+    if (this.shT >= 0 && this.shT < 0.7) r.label(this.hole.x2 + 4, GY - 14, 'GESER~', '#fff', 3.5);
+  }
 }
 
 // 3. Chasing crate
@@ -921,7 +935,7 @@ const TRAP_DEFS = {
   lantern: { basic: 1, lead: () => 0, len: () => 12, build: (w, x) => [new Lantern(w, x)] },
   branch: { basic: 1, lead: () => 0, len: () => 34, build: (w, x) => [new Branch(w, x)] },
   jumpSpike: { lead: () => 100, len: () => 16, build: (w, x) => [new JumpSpike(w, x)] },
-  expandPit: { lead: () => 16, len: () => 70, build: (w, x, s) => [new ExpandPit(w, x, s)] },
+  expandPit: { lead: () => 16, len: s => clamp(s * 0.42, 58, 96) + s * SINGLE_AIR + 14, build: (w, x, s) => [new ExpandPit(w, x, s)] },
   crate: { lead: s => 220 * 95 / (s + 95) + 10, len: () => 16, build: (w, x) => [new Crate(w, x)] },
   bamboo: { lead: () => 52, len: () => 6, build: (w, x) => [new Bamboo(w, x)] },
   fakeCoin: { lead: () => 0, len: () => 8, build: (w, x) => [new Coin(w, x - 44, 140), new Coin(w, x - 28, 136), new Coin(w, x - 12, 136), new FakeCoin(w, x)] },
@@ -1297,6 +1311,13 @@ const SelfTest = {
           let ok = false; for (const plan of cands) { const r = Sim.run(setup, plan, { speed: s, endX }); if (r.alive && r.grounded) { ok = true; break; } }
           if (!ok) fails.push(type + (v ? '/' + v : '') + '@' + s); } }
       add('Setiap jebakan bisa dilewati', fails.length === 0, fails.length ? 'TIDAK ADA JALAN: ' + fails.join(', ') : tried + ' kombinasi jebakan×varian×kecepatan, semua punya jalan selamat'); }
+    // 7b. expanding pit needs a double jump: no single jump/hop survives, a double jump does
+    { const rows = []; let ok = true;
+      for (const s of [140, 200, 260, 320]) { const x0 = 500, def = TRAP_DEFS.expandPit, setup = w => w.obstacles.push(new ExpandPit(w, x0, s)), endX = x0 + def.len(s) + s * 0.8;
+        const all = Sim.candidates(x0, -def.lead(s) - 160, def.len(s), s, 2); let single = 0, dbl = 0;
+        for (const plan of all) { const r = Sim.run(setup, plan, { speed: s, endX }); if (!(r.alive && r.grounded)) continue; if (plan.filter(a => a.a === 'jp').length >= 2) dbl++; else single++; }
+        if (single > 0 || dbl === 0) ok = false; rows.push(s + 'px/s: ' + single + ' tunggal, ' + dbl + ' ganda'); }
+      add('Lubang melebar wajib lompat ganda', ok, 'rencana yang selamat — ' + rows.join('; ')); }
     // 8. director layout validity + determinism
     { let bad = 0, total = 0; for (let seed = 1; seed <= 40; seed++) { const w = new World(seed, { headless: true }); w.player.x = 0; for (let k = 0; k < 60; k++) { w.player.x += 300; w.director.update(); } bad += w.director.validate().length; total += w.director.chunks.length; }
       const sig = sd => { const w = new World(sd, { headless: true }); for (let k = 0; k < 40; k++) { w.player.x += 300; w.director.update(); } return w.director.chunks.map(c => c.type + c.x.toFixed(1)).join('|'); };
