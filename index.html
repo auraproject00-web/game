@@ -64,6 +64,7 @@ body{font-family:var(--body);font-size:16px}
   background:rgba(216,52,44,.26);color:var(--paper);font-family:var(--pixel);font-size:clamp(9px,1.9vmin,12px);display:grid;place-items:center;text-shadow:2px 2px 0 var(--ink)}
 .tb.slide{background:rgba(63,127,191,.26)}
 .tb.on{background:rgba(242,182,50,.7);transform:scale(.94)}
+.tb.cursed{background:rgba(150,70,210,.5);border-color:#c9a0ff}
 .over .cause{font-family:var(--pixel);font-size:11px;color:var(--muted);margin-bottom:8px}
 .over .cause b{color:var(--red)}
 .over .msg{font-size:clamp(20px,4.2vw,28px);line-height:1.3;color:var(--paper);margin:6px 0 12px;text-wrap:balance}
@@ -271,6 +272,8 @@ class AudioEngine {
       case 'poof': this.noise(0.25, 0.35, 1400, 300, 'bandpass'); break;
       case 'thud': this.tone('sine', 110, 40, 0.25, 0.5); this.noise(0.15, 0.4, 800, 100); break;
       case 'ui': this.tone('square', 660, 880, 0.06, 0.14); break;
+      case 'kitsune': this.tone('square', 1400, 1100, 0.07, 0.16); this.tone('square', 1400, 1100, 0.07, 0.16, 0.14); this.tone('sine', 300, 1200, 0.5, 0.2, 0.25, 30); break;
+      case 'snap': this.noise(0.12, 0.6, 6000, 1500, 'highpass'); this.tone('square', 900, 120, 0.25, 0.2, 0.05); break;
       case 'zap': this.noise(0.15, 0.35, 5000, 2000, 'highpass'); this.tone('sawtooth', 880, 220, 0.15, 0.12); break;
     }
   }
@@ -321,6 +324,9 @@ const SPR_SRC = {
     'GGGGGGGGGG', 'GGGGGGGGGG'],
   shurikenA: ['...g...', '...gG..', 'GgGkgg.', '.ggkgg.', '.ggkGgG', '..Gg...', '...g...'],
   shurikenB: ['g.....G', '.gg.gG.', '.Ggkgg.', '..gkg..', '.ggkgG.', '.Gg.gg.', 'G.....g'],
+  fox: [
+    '.w.w..........', '.wrww.......c.', 'wwkwww....wwcc', 'rwwwwww..wwwwc', '.wwwwwwwwwww..', '..wwwwwwwwww..',
+    '..wwWwwwwWw...', '..w.w....w.w..', '..k.k....k.k..'],
 };
 
 const PixelRenderer = {
@@ -349,7 +355,7 @@ const PixelRenderer = {
     sp.chicken = mk(S.chicken, PAL, true); sp.chickenMad = mk(S.chickenMad, PAL, true);
     sp.samurai = mk(S.samurai, PAL, true); sp.samuraiScared = mk(S.samuraiScared, PAL, true);
     sp.lantern = mk(S.lantern, PAL, true);
-    sp.shA = mk(S.shurikenA, PAL, true); sp.shB = mk(S.shurikenB, PAL, true);
+    sp.fox = mk(S.fox, PAL, true); sp.shA = mk(S.shurikenA, PAL, true); sp.shB = mk(S.shurikenB, PAL, true);
     sp.ground = this.groundTile();
     this.layers = Scenery.build();
   },
@@ -931,11 +937,60 @@ class Plate extends Ob {
   }
 }
 
+// 16. Rope bridge: perfectly safe if you just run. Jump near it and the rope gets cut.
+class Bridge extends Ob {
+  constructor(w, x, s) { super(w, x); this.cause = 'bridge'; this.W = Math.round(s * SINGLE_AIR + 18); }
+  update(dt) {
+    super.update(dt); const p = this.p, s = this.w.speed;
+    if (this.st === 'idle' && p.justJumped && p.x > this.x - s * 0.35 && p.x < this.x + this.W) {
+      this.set('snap'); this.w.holes.push({ x1: this.x, x2: this.x + this.W, cause: 'bridge' }); this.trigger('snap');
+      for (let i = 0; i < 8; i++) this.w.emit('debris', { x: this.x + Math.random() * this.W, y: GY });
+    }
+  }
+  touch() { return false; }
+  right() { return this.x + this.W + 12; }
+  draw(r) {
+    const x = this.x, W = this.W, snap = this.st === 'snap', k = snap ? this.stT : 0;
+    r.px(x - 3, GY - 16, 3, 18, '#5a3a24'); r.px(x + W, GY - 16, 3, 18, '#5a3a24'); r.px(x - 3, GY - 16, 1, 18, '#8a6a3a'); r.px(x + W, GY - 16, 1, 18, '#8a6a3a');
+    if (!snap) {
+      r.px(x, GY + 3, W, LOGIC_H - GY - 3, '#0a0610'); r.px(x, GY + 2, W, 1, '#2a1820');
+      for (let i = 0; i < W; i += 6) { const sag = Math.round(Math.sin((i + 3) / W * Math.PI) * 2); r.px(x + i, GY + sag, 5, 2, '#a8743e'); r.px(x + i, GY + sag, 5, 1, '#c8915a'); }
+      for (let i = 0; i < W; i += 3) { const sag = Math.round(Math.sin(i / W * Math.PI) * 5); r.px(x + i, GY - 13 + sag, 3, 1, '#d8c090'); }
+    } else {
+      for (let i = 0; i < W; i += 6) { const dy = k * k * 420 * (0.6 + ((i * 7) % 5) / 10); if (dy < 60) r.px(x + i, GY + dy, 5, 2, '#a8743e'); }
+      r.px(x, GY - 13, 6, 1, '#d8c090'); r.px(x + 1, GY - 12, 1, Math.min(14, 4 + k * 40), '#d8c090');
+      r.px(x + W - 6, GY - 13, 6, 1, '#d8c090'); r.px(x + W - 2, GY - 12, 1, Math.min(14, 4 + k * 40), '#d8c090');
+      if (k < 0.8) r.label(x + W / 2, GY - 24, 'KRES!', '#fff', 5);
+    }
+  }
+}
+
+// 17. Kitsune: running past the fox reverses jump and slide for a moment; a hazard follows.
+class Kitsune extends Ob {
+  constructor(w, x, s, v) {
+    super(w, x); this.cause = 'kitsune'; this.v = v || 'spike'; this.hazX = x + s * 0.9;
+    this.haz = this.v === 'branch' ? new Branch(w, this.hazX) : new Spikes(w, this.hazX, 20, 'kitsune'); this.haz.cause = 'kitsune';
+  }
+  update(dt) {
+    super.update(dt); const s = this.w.speed; this.haz.update(dt); this.boxes = this.haz.boxes;
+    if (this.st === 'idle' && this.p.x > this.x - 4) { this.set('curse'); this.w.curseT = 1.7 + 34 / s; this.trigger('kitsune'); this.w.emit('foxfire', { x: this.x + 6, y: GY - 10 }); }
+  }
+  touch(pb) { return this.haz.touch(pb); }
+  right() { return this.hazX + 40; }
+  draw(r) {
+    const hop = this.st === 'curse' && this.stT < 0.6 ? -Math.abs(Math.sin(this.stT * 14)) * 4 : 0;
+    r.spr('fox', this.x, GY - 11 + hop, this.st === 'curse');
+    for (let i = 0; i < 2; i++) { const fx = this.x + 4 + i * 9 + Math.sin(this.t * 3 + i * 2) * 2, fy = GY - 20 - i * 3 + Math.sin(this.t * 5 + i) * 2; r.px(fx, fy, 2, 3, '#7fd8ff'); r.px(fx, fy - 1, 1, 1, '#e0f6ff'); }
+    if (this.st === 'curse' && this.stT < 1) r.label(this.x + 7, GY - 30, 'KON KON!', '#c9a0ff', 4);
+    this.haz.draw(r);
+  }
+}
+
 // ---------------- Trap definitions for the Director ----------------
 const TRAP_NAMES = {
   spike: 'Duri Biasa', lantern: 'Lentera Batu', branch: 'Dahan Rendah', jumpSpike: 'Duri Loncat', expandPit: 'Lubang Melebar', crate: 'Peti Pengejar',
   bamboo: 'Bambu Roboh', fakeCoin: 'Koin Palsu', sign: 'Papan Pembohong', chicken: 'Ayam Ngamuk', cloud: 'Awan Jatuh', fakeGround: 'Tanah Palsu',
-  shuriken: 'Shuriken Balik', samurai: 'Samurai Pengecut', platform: 'Pijakan Geser', sneaky: 'Ninja Semak', victory: 'Finish Palsu', delayed: 'Jebakan Telat', pit: 'Lubang'
+  shuriken: 'Shuriken Balik', samurai: 'Samurai Pengecut', platform: 'Pijakan Geser', sneaky: 'Ninja Semak', victory: 'Finish Palsu', delayed: 'Jebakan Telat', bridge: 'Jembatan Gantung', kitsune: 'Rubah Siluman', pit: 'Lubang'
 };
 const TRAP_DEFS = {
   spike: { basic: 1, lead: () => 0, len: () => 24, variants: [16, 24], build: (w, x, s, v) => [new Spikes(w, x, v)] },
@@ -965,8 +1020,10 @@ const TRAP_DEFS = {
   sneaky: { lead: () => 100, len: () => 22, build: (w, x) => [new Sneaky(w, x)] },
   victory: { lead: () => 0, len: () => 44, build: (w, x) => [new Victory(w, x)] },
   delayed: { lead: () => 0, len: s => 16 + s * 1.25, build: (w, x) => [new Plate(w, x)] },
+  bridge: { lead: s => s * 0.35, len: s => Math.round(s * SINGLE_AIR + 18), build: (w, x, s) => [new Bridge(w, x, s)] },
+  kitsune: { lead: () => 0, len: s => s * 0.9 + 34, variants: ['spike', 'branch'], build: (w, x, s, v) => [new Kitsune(w, x, s, v)] },
 };
-const INTRO_ORDER = ['jumpSpike', 'chicken', 'fakeCoin', 'expandPit', 'crate', 'sign', 'bamboo', 'fakeGround', 'shuriken', 'cloud', 'samurai', 'sneaky', 'platform', 'delayed', 'victory'];
+const INTRO_ORDER = ['jumpSpike', 'chicken', 'fakeCoin', 'expandPit', 'crate', 'sign', 'bamboo', 'fakeGround', 'shuriken', 'cloud', 'samurai', 'sneaky', 'platform', 'delayed', 'victory', 'bridge', 'kitsune'];
 
 // ---------------- TrapDirector ----------------
 class TrapDirector {
@@ -993,7 +1050,7 @@ class TrapDirector {
       let wgt = TRAP_DEFS[t].basic ? (this.unlocked.length > 6 ? 0.45 : 1) : 1.2;
       wgt /= 1 + 0.35 * (this.runCounts[t] || 0);
       if (t === 'fakeCoin') wgt *= 1 + greed * 2.2;           // greedy players get baited more
-      if (t === 'jumpSpike' || t === 'sneaky') wgt *= 1 + early * 2; // early jumpers get punished more
+      if (t === 'jumpSpike' || t === 'sneaky' || t === 'bridge') wgt *= 1 + early * 2; // early jumpers get punished more
       if (t === 'sign' && (h.slides || 0) > 15) wgt *= 1.4;
       cand.push([t, wgt]); tot += wgt;
     }
@@ -1040,7 +1097,7 @@ class World {
   constructor(seed, opts = {}) {
     this.seed = seed >>> 0; this.opts = opts; this.headless = !!opts.headless; this.listener = opts.listener || null;
     this.player = new Player(this); this.obstacles = []; this.holes = []; this.t = 0; this.coins = 0; this.dead = null;
-    this.fixedSpeed = opts.speed || 0; this.speed = this.fixedSpeed || BASE_SPEED; this.invincible = false;
+    this.fixedSpeed = opts.speed || 0; this.speed = this.fixedSpeed || BASE_SPEED; this.invincible = false; this.curseT = 0; this.cursedInput = {};
     this.input = { jumpPressed: false, jumpHeld: false, down: false };
     this.habits = opts.habits || { seen: {} }; this.runHabits = { coinSeen: 0, coinTaken: 0, jumps: 0, earlyJumps: 0, slides: 0, signsPassed: 0, seen: {}, deathsBy: {} };
     this.director = opts.noDirector ? null : new TrapDirector(this, this.seed, this.habits);
@@ -1067,7 +1124,13 @@ class World {
     this.t += dt; this.speed = this.fixedSpeed || Physics.speedAt(this.player.x);
     if (this.director) this.director.update();
     for (const o of this.obstacles) o.update(dt);
-    this.player.update(dt, this.input);
+    let inp = this.input;
+    if (this.curseT > 0) {
+      // kitsune curse: jump and slide swap places
+      this.curseT -= dt; const r = this.input; inp = this.cursedInput;
+      inp.jumpPressed = !!r.downTap; inp.jumpHeld = !!r.down; inp.down = !!r.jumpHeld; inp.downTap = !!r.jumpPressed; r.downTap = false; r.jumpPressed = false;
+    }
+    this.player.update(dt, inp);
     CollisionSystem.resolve(this);
     // signs passed (habit for honest-sign exploitation)
     for (const o of this.obstacles) if (o instanceof SignPost && o.st === 'passed' && !o.counted && !this.dead) { o.counted = true; this.habit('signsPassed'); }
@@ -1180,6 +1243,8 @@ const DEATH_MSG = {
   sneaky: ['Dia lebih ninja dari lu.', 'Ninja kalah sama ninja semak-semak.'],
   victory: ['FINISH-nya kabur duluan.', 'Menang? Mimpi kali.'],
   delayed: ['Jebakannya sabar. Lu nggak.', 'Klik... terus mati. Telat sadar.'],
+  bridge: ['Jembatannya aman. Lu aja yang lompat.', 'Ngapain lompat di jembatan, bro?', 'Kebiasaan lompat. Tali putus, lu juga.'],
+  kitsune: ['Dikutuk rubah. Kontrol kebalik, harga diri juga.', 'KON KON! Rubahnya ketawa liat lu.'],
   lantern: ['Lentera batu diem aja lu seruduk.'],
   branch: ['Nunduk dikit kek. Sombong amat.'],
   pit: ['Jatuh ke lubang. Klasik.'],
@@ -1269,7 +1334,7 @@ const Sim = {
     if (setup) setup(w);
     const acts = plan.slice().sort((a, b) => a.x - b.x); let ai = 0; const endX = o.endX, maxT = o.maxT || 12;
     while (!w.dead && w.player.x < endX && w.t < maxT) {
-      while (ai < acts.length && w.player.x >= acts[ai].x) { const a = acts[ai++]; if (a.a === 'jp') { w.input.jumpPressed = true; w.input.jumpHeld = true; } else if (a.a === 'jr') w.input.jumpHeld = false; else if (a.a === 'sd') w.input.down = true; else if (a.a === 'su') w.input.down = false; }
+      while (ai < acts.length && w.player.x >= acts[ai].x) { const a = acts[ai++]; if (a.a === 'jp') { w.input.jumpPressed = true; w.input.jumpHeld = true; } else if (a.a === 'jr') w.input.jumpHeld = false; else if (a.a === 'sd') { w.input.down = true; w.input.downTap = true; } else if (a.a === 'su') w.input.down = false; }
       w.step(STEP);
     }
     return { alive: !w.dead, grounded: w.player.onGround, world: w };
@@ -1325,6 +1390,18 @@ const SelfTest = {
         for (const plan of all) { const r = Sim.run(setup, plan, { speed: s, endX }); if (!(r.alive && r.grounded)) continue; if (plan.filter(a => a.a === 'jp').length >= 2) dbl++; else single++; }
         if (single > 0 || dbl === 0) ok = false; rows.push(s + 'px/s: ' + single + ' tunggal, ' + dbl + ' ganda'); }
       add('Lubang melebar wajib lompat ganda', ok, 'rencana yang selamat — ' + rows.join('; ')); }
+    // 7c. rope bridge: running across is safe, jumping near it snaps it
+    { const rows = []; let ok = true;
+      for (const s of [140, 230, 320]) { const x0 = 500, W = TRAP_DEFS.bridge.len(s), setup = w => w.obstacles.push(new Bridge(w, x0, s)), endX = x0 + W + s * 0.8;
+        const run = Sim.run(setup, [], { speed: s, endX }); const jump = Sim.run(setup, [{ x: x0 - 8, a: 'jp' }, { x: x0 + s * 0.5, a: 'jr' }], { speed: s, endX });
+        if (!run.alive || jump.alive || jump.world.dead.cause !== 'bridge') ok = false; rows.push(s + ': lari ' + (run.alive ? 'selamat' : 'mati') + ', lompat ' + (jump.alive ? 'selamat' : 'jatuh')); }
+      add('Jembatan Gantung: lari aman, lompat runtuh', ok, rows.join('; ')); }
+    // 7d. kitsune curse swaps jump and slide, then wears off
+    { const w = new World(4, { headless: true, noDirector: true, speed: 160 }); w.step(STEP); w.curseT = 1;
+      w.input.jumpPressed = true; w.input.jumpHeld = true; for (let i = 0; i < 6; i++) w.step(STEP); const slidOnJump = w.player.sliding && w.player.onGround; w.input.jumpHeld = false; for (let i = 0; i < 60; i++) w.step(STEP);
+      w.input.downTap = true; w.input.down = true; w.step(STEP); w.step(STEP); const jumpedOnDown = !w.player.onGround; w.input.down = false; for (let i = 0; i < 200; i++) w.step(STEP);
+      w.input.jumpPressed = true; w.input.jumpHeld = true; w.step(STEP); w.step(STEP); const normalAfter = !w.player.onGround && w.curseT <= 0;
+      add('Kutukan rubah membalik kontrol', slidOnJump && jumpedOnDown && normalAfter, 'saat kutukan: tombol lompat → ' + (slidOnJump ? 'nunduk' : '??') + ', tombol nunduk → ' + (jumpedOnDown ? 'lompat' : '??') + '; setelah habis: normal ' + (normalAfter ? 'ya' : 'tidak')); }
     // 8. director layout validity + determinism
     { let bad = 0, total = 0; for (let seed = 1; seed <= 40; seed++) { const w = new World(seed, { headless: true }); w.player.x = 0; for (let k = 0; k < 60; k++) { w.player.x += 300; w.director.update(); } bad += w.director.validate().length; total += w.director.chunks.length; }
       const sig = sd => { const w = new World(sd, { headless: true }); for (let k = 0; k < 40; k++) { w.player.x += 300; w.director.update(); } return w.director.chunks.map(c => c.type + c.x.toFixed(1)).join('|'); };
@@ -1377,7 +1454,7 @@ class GameEngine {
     this.particles = new ParticleSystem(380); this.ui = new UIManager(this); this.input = new InputManager(this); this.debug = new DebugManager(this);
     PixelRenderer.build(); this.state = 'menu'; this.paused = false; this.acc = 0; this.lastTs = 0; this.shake = 0; this.hitstop = 0; this.timeScale = 1;
     this.camX = 0; this.prevCam = 0; this.menuT = 0; this.overT = 0; this.ov = []; this.fixedSeed = null; this.lastCause = null; this.sameStreak = 0; this.msgRng = mulberry32(Date.now() & 0xffff);
-    this.ring = []; this.ringIdx = 0; this.ringN = 48; this.frameNo = 0; this.replayT = 0; this.ringCount = 0; this.bestAnnounced = false;
+    this.cursedUi = false; this.ring = []; this.ringIdx = 0; this.ringN = 48; this.frameNo = 0; this.replayT = 0; this.ringCount = 0; this.bestAnnounced = false;
     this.world = new World(1, { noDirector: true, listener: (t, d) => this.onEvent(t, d) });
     this.resize(); window.addEventListener('resize', () => this.resize()); window.addEventListener('orientationchange', () => setTimeout(() => this.resize(), 120));
     document.addEventListener('visibilitychange', () => { if (document.hidden && this.state === 'play' && !this.paused) this.togglePause(); });
@@ -1429,6 +1506,7 @@ class GameEngine {
       case 'thudSmall': A.play('land'); break;
       case 'creak': A.tone && A.tone('sawtooth', 120, 80, 0.3, 0.12); break;
       case 'click': A.play('click'); break;
+      case 'foxfire': for (let i = 0; i < 14; i++) P.spawn({ x: d.x + (Math.random() - .5) * 12, y: d.y, vx: (Math.random() - .5) * 60, vy: -30 - Math.random() * 50, life: 0.7, col: pick(Math.random, ['#7fd8ff', '#c9a0ff', '#e0f6ff']), size: 2, fade: true }); break;
       case 'whoosh': A.play('whoosh'); break;
       case 'bounce': A.play('bounce'); break;
       case 'zap': A.play('zap'); for (let i = 0; i < 4; i++) P.spawn({ x: d.x + (Math.random() - .5) * 20, y: d.y, vx: 0, vy: 80, life: 0.15, col: '#fff7a0', size: 1 }); break;
@@ -1461,6 +1539,7 @@ class GameEngine {
       this.particles.update(dt);
       if (!this.bestAnnounced && this.prevBest > 0 && w.score > this.prevBest) { this.bestAnnounced = true; this.audio.play('best'); this.ui.toast('REKOR BARU!'); }
       this.ui.hud(w.score);
+      const cursed = w.curseT > 0; if (cursed !== this.cursedUi) { this.cursedUi = cursed; document.getElementById('tJump').classList.toggle('cursed', cursed); document.getElementById('tSlide').classList.toggle('cursed', cursed); }
     } else if (this.state === 'dying') {
       if (this.hitstop > 0) this.hitstop -= dt;
       else { this.dieT += dt; const sdt = dt * (this.dieT < 0.5 ? 0.35 : 1); this.updateDeathAnim(sdt); this.particles.update(sdt); }
@@ -1533,6 +1612,11 @@ class GameEngine {
     if (nightAmt > 0.3) { const px = w.player.x - cam; const g = c.createRadialGradient(px, GY - 10, 4, px, GY - 10, 70); g.addColorStop(0, 'rgba(255,220,150,' + (0.16 * nightAmt) + ')'); g.addColorStop(1, 'rgba(255,220,150,0)'); c.fillStyle = g; c.fillRect(px - 70, GY - 80, 140, 140); }
     // ambient leaves / fireflies
     this.ambient(cam, W, nightAmt);
+    if (w.curseT > 0 && this.state === 'play') {
+      c.globalAlpha = 0.18 + 0.06 * Math.sin(performance.now() / 120); c.fillStyle = '#7a2ad8'; c.fillRect(0, 0, W, 6); c.fillRect(0, LOGIC_H - 6, W, 6); c.fillRect(0, 0, 6, LOGIC_H); c.fillRect(W - 6, 0, 6, LOGIC_H); c.globalAlpha = 1;
+      const px = Math.round(w.player.x - cam), py = Math.round(w.player.y) - 22, a = performance.now() / 90; for (let i = 0; i < 3; i++) { c.fillStyle = '#c9a0ff'; c.fillRect(px + Math.round(Math.cos(a + i * 2.1) * 5), py + Math.round(Math.sin(a + i * 2.1) * 2), 2, 2); }
+      r.label(cam + W / 2, 40, 'KONTROL TERBALIK!', '#c9a0ff', 6);
+    }
     if (this.debug.on) this.debug.drawBoxes(c, w, cam);
     // death replay ring capture
     if (this.state === 'play' || (this.state === 'dying' && this.dieT < 0.45)) this.captureRing();
