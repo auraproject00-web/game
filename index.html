@@ -106,7 +106,7 @@ body{font-family:var(--body);font-size:16px}
     <div class="panel">
       <h1 class="logo"><span class="l1">NINJA</span><span class="l2">SABAR<span class="stamp">忍</span></span></h1>
       <p class="tag">Lari, lompat, dan jangan percaya apa pun.</p>
-      <div class="row"><button class="btn red big" id="bStart">MULAI</button></div>
+      <div class="row"><button class="btn red big" id="bStart">MULAI</button><button class="btn big" id="bContinue" hidden>LANJUT</button></div>
       <div class="stats">
         <div class="stat"><span>Skor Terbaik</span><b id="mBest">0</b></div>
         <div class="stat"><span>Total Mati</span><b id="mDeaths">0</b></div>
@@ -145,6 +145,7 @@ body{font-family:var(--body);font-size:16px}
       <div class="row">
         <button class="btn red" id="bResume">LANJUT</button>
         <button class="btn" id="bPRetry">ULANG</button>
+        <button class="btn ghost" id="bPFresh" hidden>DARI AWAL</button>
         <button class="btn ghost" id="bPMenu">MENU</button>
       </div>
     </div>
@@ -164,9 +165,10 @@ body{font-family:var(--body);font-size:16px}
       </div>
       <div class="row">
         <button class="btn red big" id="bRetry2">COBA LAGI</button>
+        <button class="btn" id="bFresh" hidden>DARI AWAL</button>
         <button class="btn ghost" id="bMenu">MENU</button>
       </div>
-      <p class="small">R atau Spasi buat langsung ulang</p>
+      <p class="small" id="oHint">R atau Spasi buat langsung ulang</p>
     </div>
   </div>
 
@@ -194,7 +196,7 @@ const Physics = {
 };
 
 // ---------------- Util ----------------
-function mulberry32(a) { a = a >>> 0; return function () { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+function mulberry32(a) { a = a >>> 0; const f = function () { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; f.get = () => a; f.set = v => { a = v; }; return f; }
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const lerp = (a, b, t) => a + (b - a) * t;
 function hexRgb(h) { const n = parseInt(h.slice(1), 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; }
@@ -986,9 +988,28 @@ class Kitsune extends Ob {
   }
 }
 
+// Checkpoint shrine: passing it saves the run (director state + position + coins).
+const CP_INTERVAL = 2000; // px = 200 m
+class Checkpoint extends Ob {
+  constructor(w, x) { super(w, x); this.cause = 'checkpoint'; this.snap = null; }
+  update(dt) { super.update(dt); if (this.st === 'idle' && this.p.x > this.x + 4 && !this.w.dead) { this.set('on'); this.w.saveCheckpoint(this); } }
+  touch() { return false; }
+  right() { return this.x + 30; }
+  draw(r) {
+    const x = this.x, on = this.st === 'on', wave = Math.round(Math.sin(this.t * 6) * 1);
+    r.px(x - 3, GY - 4, 16, 4, '#8a8f9a'); r.px(x - 3, GY - 4, 16, 1, '#c9ced8'); r.px(x - 1, GY - 7, 12, 3, '#a7adb8');
+    r.px(x + 4, GY - 40, 2, 33, '#5a3a24'); r.px(x + 4, GY - 41, 9, 2, '#5a3a24');
+    const fc = on ? '#d8342c' : '#e8e0d0', fs = on ? '#8e1c22' : '#b8b0a0';
+    r.px(x + 6, GY - 39, 7, 24 + wave, fc); r.px(x + 12, GY - 39, 1, 24 + wave, fs);
+    for (let i = 0; i < 4; i++) r.px(x + 8, GY - 35 + i * 5, 3, 2, on ? '#f2b632' : '#8a8478');
+    if (on) { if (r.night > .3) r.glow(x + 9, GY - 28, 16, 'rgba(255,120,90,'); if (this.stT < 1.6) r.label(x + 9, GY - 50, 'CEK POIN!', '#f2b632', 4.5); }
+    else if (Math.floor(this.t * 2) % 2) r.px(x + 9, GY - 45, 1, 2, '#fff');
+  }
+}
+
 // ---------------- Trap definitions for the Director ----------------
 const TRAP_NAMES = {
-  spike: 'Duri Biasa', lantern: 'Lentera Batu', branch: 'Dahan Rendah', jumpSpike: 'Duri Loncat', expandPit: 'Lubang Melebar', crate: 'Peti Pengejar',
+  checkpoint: 'Cek Poin', spike: 'Duri Biasa', lantern: 'Lentera Batu', branch: 'Dahan Rendah', jumpSpike: 'Duri Loncat', expandPit: 'Lubang Melebar', crate: 'Peti Pengejar',
   bamboo: 'Bambu Roboh', fakeCoin: 'Koin Palsu', sign: 'Papan Pembohong', chicken: 'Ayam Ngamuk', cloud: 'Awan Jatuh', fakeGround: 'Tanah Palsu',
   shuriken: 'Shuriken Balik', samurai: 'Samurai Pengecut', platform: 'Pijakan Geser', sneaky: 'Ninja Semak', victory: 'Finish Palsu', delayed: 'Jebakan Telat', bridge: 'Jembatan Gantung', kitsune: 'Rubah Siluman', pit: 'Lubang'
 };
@@ -1020,6 +1041,7 @@ const TRAP_DEFS = {
   sneaky: { lead: () => 100, len: () => 22, build: (w, x) => [new Sneaky(w, x)] },
   victory: { lead: () => 0, len: () => 44, build: (w, x) => [new Victory(w, x)] },
   delayed: { lead: () => 0, len: s => 16 + s * 1.25, build: (w, x) => [new Plate(w, x)] },
+  checkpoint: { lead: () => 0, len: () => 24, build: (w, x) => [new Checkpoint(w, x)] },
   bridge: { lead: s => s * 0.35, len: s => Math.round(s * SINGLE_AIR + 18), build: (w, x, s) => [new Bridge(w, x, s)] },
   kitsune: { lead: () => 0, len: s => s * 0.9 + 34, variants: ['spike', 'branch'], build: (w, x, s, v) => [new Kitsune(w, x, s, v)] },
 };
@@ -1029,7 +1051,7 @@ const INTRO_ORDER = ['jumpSpike', 'chicken', 'fakeCoin', 'expandPit', 'crate', '
 class TrapDirector {
   constructor(world, seed, habits) {
     this.w = world; this.rng = mulberry32((seed ^ 0x9E3779B9) >>> 0); this.habits = JSON.parse(JSON.stringify(habits || { seen: {} })); // snapshot keeps a run deterministic
-    this.nextX = 420; this.history = []; this.chunks = []; this.unlocked = ['spike', 'lantern', 'branch']; this.introIdx = 0; this.sinceIntro = 0; this.runCounts = {}; this.prev = null;
+    this.nextX = 420; this.history = []; this.chunks = []; this.unlocked = ['spike', 'lantern', 'branch']; this.introIdx = 0; this.sinceIntro = 0; this.runCounts = {}; this.prev = null; this.nextCp = CP_INTERVAL;
   }
   difficulty(x) { return clamp(x / 26000, 0, 1); }
   settle(s) { return s * 0.62; }
@@ -1062,7 +1084,23 @@ class TrapDirector {
     if (type === 'sign') { const honest = (this.habits.signsPassed || 0) >= 2 && r() < 0.35; return (r() < 0.6 ? 'LOMPAT' : 'NUNDUK') + (honest ? '-true' : '-lie'); }
     return pick(r, def.variants);
   }
+  snapshot() {
+    return { rng: this.rng.get(), nextX: this.nextX, nextCp: this.nextCp, history: this.history.slice(-6), unlocked: this.unlocked.slice(), introIdx: this.introIdx,
+      sinceIntro: this.sinceIntro, runCounts: Object.assign({}, this.runCounts), prev: this.prev };
+  }
+  restore(sn) {
+    this.rng.set(sn.rng); this.nextX = sn.nextX; this.nextCp = sn.nextCp; this.history = sn.history.slice(); this.unlocked = sn.unlocked.slice(); this.introIdx = sn.introIdx;
+    this.sinceIntro = sn.sinceIntro; this.runCounts = Object.assign({}, sn.runCounts); this.prev = sn.prev; this.chunks = [];
+  }
+  maxLead(s) { let m = 0; for (const t of this.unlocked.concat(INTRO_ORDER[this.introIdx] ? [INTRO_ORDER[this.introIdx]] : [])) m = Math.max(m, TRAP_DEFS[t].lead(s)); return m; }
+  spawnCheckpoint(x) {
+    const s = Physics.speedAt(x), cp = new Checkpoint(this.w, x); cp.trapType = 'checkpoint'; this.w.obstacles.push(cp);
+    const end = x + 24, minGap = this.settle(s) + this.maxLead(s) + s * 0.3 + 12, gap = minGap + s * 0.8; // extra breathing room after a respawn
+    this.chunks.push({ type: 'checkpoint', x, end, s, gap, minGap }); if (this.chunks.length > 40) this.chunks.shift();
+    this.nextCp = x + CP_INTERVAL; this.nextX = end + gap; this.prev = 'checkpoint'; cp.snap = this.snapshot();
+  }
   spawnChunk() {
+    if (this.nextX >= this.nextCp) return this.spawnCheckpoint(this.nextX);
     const x = this.nextX, s = Physics.speedAt(x), diff = this.difficulty(x), c = this.choose(s), type = c.type, v = this.variantFor(type), def = TRAP_DEFS[type];
     const obs = def.build(this.w, x, s, v); for (const o of obs) { o.trapType = type; this.w.obstacles.push(o); }
     const end = x + def.len(s);
@@ -1111,6 +1149,11 @@ class World {
   }
   solidAt(x) { for (const h of this.holes) if (x > h.x1 && x < h.x2) return false; return true; }
   holeAt(x) { for (const h of this.holes) if (x > h.x1 - 4 && x < h.x2 + 4) return h; return null; }
+  saveCheckpoint(o) {
+    if (!o.snap || !this.director) return;
+    this.checkpoint = { seed: this.seed, habits: this.director.habits, dir: o.snap, x: o.x, coins: this.coins };
+    this.emit('checkpoint', { x: o.x, cp: this.checkpoint });
+  }
   collect(c) { this.coins++; this.habit('coinTaken'); this.emit('coin', { x: c.x, y: c.y }); }
   kill(cause, src, anim) {
     if (this.dead || this.invincible) return;
@@ -1273,6 +1316,7 @@ class UIManager {
     click('bPause', () => engine.togglePause()); click('bResume', () => engine.togglePause());
     click('bPRetry', () => engine.restart()); click('bPMenu', () => engine.toMenu());
     click('bRetry', () => engine.restart()); click('bRetry2', () => engine.restart()); click('bMenu', () => engine.toMenu());
+    click('bFresh', () => engine.start()); click('bPFresh', () => engine.start()); click('bContinue', () => engine.continueSaved());
     ['bRetry', 'bMute', 'bPause'].forEach(id => $(id).addEventListener('pointerdown', ev => ev.stopPropagation()));
     this.toastT = 0; this.last = {};
   }
@@ -1290,13 +1334,17 @@ class UIManager {
     const sm = this.e.scores; this.$('mBest').textContent = sm.best; this.$('mDeaths').textContent = sm.deaths;
     this.$('bSound').textContent = 'SUARA: ' + (sm.muted ? 'OFF' : 'ON'); this.$('bMute').innerHTML = sm.muted ? '&times;' : '&#9834;';
     this.$('hBest').textContent = sm.best; this.$('hDeaths').textContent = sm.deaths;
+    const saved = this.e.savedCheckpoint(); this.$('bContinue').hidden = !saved; if (saved) this.$('bContinue').textContent = 'LANJUT ' + Math.floor(saved.x / 10) + ' m';
+    const cp = this.e.world && this.e.world.checkpoint; this.$('bPFresh').hidden = !cp; this.$('bPRetry').textContent = cp ? 'KE CEK POIN' : 'ULANG';
   }
   hud(score) { if (this.last.score !== score) { this.last.score = score; this.$('hScore').textContent = score; } }
   toast(text, t = 1.4) { this.el.toast.textContent = text; this.el.toast.hidden = false; this.toastT = t; }
   tick(dt) { if (this.toastT > 0) { this.toastT -= dt; if (this.toastT <= 0) this.el.toast.hidden = true; } }
   gameOver(info) {
     this.$('oCause').textContent = info.causeName; this.$('oMsg').textContent = info.msg; this.$('oScore').textContent = info.score;
-    this.$('oBest').textContent = info.best; this.$('oDeaths').textContent = info.deaths; this.$('oNew').hidden = !info.newBest; this.show('over');
+    this.$('oBest').textContent = info.best; this.$('oDeaths').textContent = info.deaths; this.$('oNew').hidden = !info.newBest;
+    const cp = info.cp; this.$('bRetry2').textContent = cp ? 'LANJUT ' + Math.floor(cp.x / 10) + ' m' : 'COBA LAGI'; this.$('bFresh').hidden = !cp;
+    this.$('oHint').textContent = cp ? 'R atau Spasi: lanjut dari cek poin terakhir' : 'R atau Spasi buat langsung ulang'; this.show('over');
   }
 }
 
@@ -1402,6 +1450,16 @@ const SelfTest = {
       w.input.downTap = true; w.input.down = true; w.step(STEP); w.step(STEP); const jumpedOnDown = !w.player.onGround; w.input.down = false; for (let i = 0; i < 200; i++) w.step(STEP);
       w.input.jumpPressed = true; w.input.jumpHeld = true; w.step(STEP); w.step(STEP); const normalAfter = !w.player.onGround && w.curseT <= 0;
       add('Kutukan rubah membalik kontrol', slidOnJump && jumpedOnDown && normalAfter, 'saat kutukan: tombol lompat → ' + (slidOnJump ? 'nunduk' : '??') + ', tombol nunduk → ' + (jumpedOnDown ? 'lompat' : '??') + '; setelah habis: normal ' + (normalAfter ? 'ya' : 'tidak')); }
+    // 7e. checkpoint: resuming rebuilds the exact same course after the shrine
+    { const w = new World(21, { headless: true }); w.invincible = true; let guard = 0; while (!w.checkpoint && guard++ < 40000) w.step(STEP);
+      const cp = w.checkpoint; let same = false, detail = 'cek poin tidak tercapai';
+      if (cp) { const target = cp.x + 3000; while (w.player.x < target) w.step(STEP);
+        const sig = ww => ww.director.chunks.filter(c => c.x > cp.x && c.x < target).map(c => c.type + '@' + c.x.toFixed(1)).join('|');
+        const r = new World(cp.seed, { headless: true, habits: cp.habits }); r.director.restore(cp.dir); r.player.x = cp.x - 36; r.coins = cp.coins; r.invincible = true; while (r.player.x < target) r.step(STEP);
+        const a = sig(w), b = sig(r); same = a.length > 0 && a === b && r.coins >= cp.coins;
+        const firstAfter = r.director.chunks.find(c => c.x > cp.x); const room = firstAfter ? (firstAfter.x - TRAP_DEFS[firstAfter.type].lead(firstAfter.s) - cp.x) / firstAfter.s : 0;
+        detail = 'cek poin di ' + Math.floor(cp.x / 10) + ' m; lintasan setelahnya ' + (a === b ? 'identik' : 'BEDA') + ' (' + a.split('|').length + ' chunk); jeda aman setelah respawn ' + room.toFixed(2) + ' s'; same = same && room > 1; }
+      add('Cek poin: lanjut dengan lintasan sama', same, detail); }
     // 8. director layout validity + determinism
     { let bad = 0, total = 0; for (let seed = 1; seed <= 40; seed++) { const w = new World(seed, { headless: true }); w.player.x = 0; for (let k = 0; k < 60; k++) { w.player.x += 300; w.director.update(); } bad += w.director.validate().length; total += w.director.chunks.length; }
       const sig = sd => { const w = new World(sd, { headless: true }); for (let k = 0; k < 40; k++) { w.player.x += 300; w.director.update(); } return w.director.chunks.map(c => c.type + c.x.toFixed(1)).join('|'); };
@@ -1428,12 +1486,12 @@ const SelfTest = {
     { const sm = new ScoreManager(); const oldBest = sm.best; sm.best = oldBest + 1; sm.save(); const sm2 = new ScoreManager(); const ok = sm2.best === oldBest + 1; sm.best = oldBest; sm.save();
       add('Simpan skor terbaik', ok, (Store.persistent ? 'localStorage' : 'memori (localStorage tidak tersedia)') + ' round-trip ' + (ok ? 'cocok' : 'beda')); }
     // 11. restart reset
-    { const e = window.NinjaSabar; if (e) { const was = e.state; e.start(); for (let i = 0; i < 120; i++) e.world.step(STEP); e.world.kill('spike', null, 'launch'); e.restart(); const w = e.world;
+    { const e = window.NinjaSabar; if (e) { const was = e.state, keepCp = Store.get('ns_cp', null); e.start(); for (let i = 0; i < 120; i++) e.world.step(STEP); e.world.kill('spike', null, 'launch'); e.restart(); const w = e.world;
         const ok = w.player.x === 0 && w.player.y === GY && !w.dead && w.obstacles.length === 0 && w.coins === 0 && e.state === 'play'; e.scores.deaths = Math.max(0, e.scores.deaths - 1); e.scores.save(); if (was === 'menu') e.toMenu();
-        add('Reset saat ulang', ok, 'posisi, rintangan, koin, status mati kembali ke awal'); } }
+        Store.set('ns_cp', keepCp); e.ui.refreshStats(); add('Reset saat ulang', ok, 'posisi, rintangan, koin, status mati kembali ke awal'); } }
     // 12. pause / resume
-    { const e = window.NinjaSabar; if (e) { e.start(); e.frame(performance.now()); const x0 = e.world.player.x; e.togglePause(); for (let i = 0; i < 30; i++) e.frame(performance.now() + i * 16); const x1 = e.world.player.x; e.togglePause(); e.lastTs = performance.now(); e.frame(e.lastTs + 16); e.frame(e.lastTs + 33);
-        add('Jeda & lanjut', x1 === x0 && e.world.player.x > x1, 'saat jeda bergerak ' + (x1 - x0).toFixed(2) + 'px; setelah lanjut ' + (e.world.player.x - x1).toFixed(2) + 'px'); e.toMenu(); } }
+    { const e = window.NinjaSabar; if (e) { const keepCp = Store.get('ns_cp', null); e.start(); e.frame(performance.now()); const x0 = e.world.player.x; e.togglePause(); for (let i = 0; i < 30; i++) e.frame(performance.now() + i * 16); const x1 = e.world.player.x; e.togglePause(); e.lastTs = performance.now(); e.frame(e.lastTs + 16); e.frame(e.lastTs + 33);
+        add('Jeda & lanjut', x1 === x0 && e.world.player.x > x1, 'saat jeda bergerak ' + (x1 - x0).toFixed(2) + 'px; setelah lanjut ' + (e.world.player.x - x1).toFixed(2) + 'px'); Store.set('ns_cp', keepCp); e.toMenu(); } }
     // 13. frame-rate independence (fixed-step accumulator)
     { const runAt = dts => { const w = flat(); let acc = 0, t = 0, jumped = false, apex = GY; for (const dt of dts) { acc += dt; t += dt; if (!jumped && t > 0.2) { w.input.jumpPressed = true; w.input.jumpHeld = true; jumped = true; } while (acc >= STEP) { w.step(STEP); acc -= STEP; apex = Math.min(apex, w.player.y); } } return [w.player.x, apex]; };
       const mk = (fps, T = 1.2) => Array.from({ length: Math.round(T * fps) }, () => 1 / fps); const R2 = mulberry32(9); const jit = []; let tt = 0; while (tt < 1.2) { const d = 1 / 30 + R2() * (1 / 24); jit.push(d); tt += d; }
@@ -1477,8 +1535,19 @@ class GameEngine {
     this.world = new World(seed, { habits: this.scores.habits, listener: (t, d) => this.onEvent(t, d) });
     this.particles.clear(); this.acc = 0; this.shake = 0; this.hitstop = 0; this.timeScale = 1; this.camX = this.prevCam = this.world.player.x - PLAYER_SX; this.ringCount = 0; this.bestAnnounced = false; this.prevBest = this.scores.best;
   }
-  start() { this.audio.unlock(); this.newWorld(); this.state = 'play'; this.paused = false; this.ui.show(null); this.lastTs = performance.now(); }
-  restart() { if (this.state === 'menu') return this.start(); this.start(); }
+  start() { this.audio.unlock(); Store.set('ns_cp', null); this.newWorld(); this.state = 'play'; this.paused = false; this.ui.show(null); this.lastTs = performance.now(); }
+  restart() { const cp = this.state !== 'menu' && this.world && this.world.checkpoint; if (cp) return this.resume(cp); this.start(); }
+  savedCheckpoint() { const cp = Store.get('ns_cp', null); return cp && cp.dir && typeof cp.x === 'number' ? cp : null; }
+  continueSaved() { const cp = this.savedCheckpoint(); if (cp) this.resume(cp); else this.start(); }
+  /** Rebuild the run from a checkpoint: same seed, director state restored, so the course after it is identical. */
+  resume(cp) {
+    this.audio.unlock();
+    const w = new World(cp.seed, { habits: cp.habits, listener: (t, d) => this.onEvent(t, d) }); w.director.restore(cp.dir);
+    w.player.x = w.player.prevX = cp.x - 36; w.coins = cp.coins; w.checkpoint = cp;
+    const shrine = new Checkpoint(w, cp.x); shrine.st = 'on'; shrine.stT = 9; shrine.trapType = 'checkpoint'; w.obstacles.push(shrine);
+    this.world = w; this.particles.clear(); this.acc = 0; this.shake = 0; this.hitstop = 0; this.camX = this.prevCam = w.player.x - PLAYER_SX; this.ringCount = 0; this.bestAnnounced = false; this.prevBest = this.scores.best;
+    this.state = 'play'; this.paused = false; this.ui.show(null); this.lastTs = performance.now(); this.ui.toast('LANJUT DARI ' + Math.floor(cp.x / 10) + ' m', 1.2);
+  }
   toMenu() { this.state = 'menu'; this.paused = false; this.world = new World(1, { noDirector: true, listener: (t, d) => this.onEvent(t, d) }); this.particles.clear(); this.ui.show('menu'); }
   togglePause() {
     if (this.state !== 'play') return; this.paused = !this.paused; this.ui.show(this.paused ? 'pause' : null); this.lastTs = performance.now(); this.acc = 0;
@@ -1506,6 +1575,8 @@ class GameEngine {
       case 'thudSmall': A.play('land'); break;
       case 'creak': A.tone && A.tone('sawtooth', 120, 80, 0.3, 0.12); break;
       case 'click': A.play('click'); break;
+      case 'checkpoint': [784, 988, 1175].forEach((f, i) => A.tone('triangle', f, f, 0.18, 0.2, i * 0.09)); Store.set('ns_cp', d.cp); this.ui.toast('CEK POIN ' + Math.floor(d.x / 10) + ' m TERSIMPAN', 1.6);
+        for (let i = 0; i < 18; i++) P.spawn({ x: d.x + 9, y: GY - 28, vx: (Math.random() - .5) * 120, vy: -40 - Math.random() * 80, life: 0.8, col: pick(Math.random, ['#f2b632', '#ffffff', '#d8342c']), size: 1, g: 160 }); break;
       case 'foxfire': for (let i = 0; i < 14; i++) P.spawn({ x: d.x + (Math.random() - .5) * 12, y: d.y, vx: (Math.random() - .5) * 60, vy: -30 - Math.random() * 50, life: 0.7, col: pick(Math.random, ['#7fd8ff', '#c9a0ff', '#e0f6ff']), size: 2, fade: true }); break;
       case 'whoosh': A.play('whoosh'); break;
       case 'bounce': A.play('bounce'); break;
@@ -1522,7 +1593,7 @@ class GameEngine {
     const H = sm.habits, RH = w.runHabits; for (const k of ['coinSeen', 'coinTaken', 'jumps', 'earlyJumps', 'slides', 'signsPassed']) H[k] = Math.min(5000, (H[k] || 0) + (RH[k] || 0));
     for (const k in RH.seen) H.seen[k] = (H.seen[k] || 0) + RH.seen[k]; H.deathsBy[d.cause] = (H.deathsBy[d.cause] || 0) + 1; sm.save();
     this.sameStreak = this.lastCause === d.cause ? this.sameStreak + 1 : 1; this.lastCause = d.cause;
-    this.overInfo = { causeName: TRAP_NAMES[d.cause] || d.cause, score, best: sm.best, deaths: sm.deaths, newBest,
+    this.overInfo = { cp: w.checkpoint || null, causeName: TRAP_NAMES[d.cause] || d.cause, score, best: sm.best, deaths: sm.deaths, newBest,
       msg: deathMessage({ cause: d.cause, deaths: sm.deaths, score, best: sm.best, prevBest, streakSame: this.sameStreak, isTouch: this.input.isTouch, distM }, this.msgRng) };
     this.ui.refreshStats(); this.replayT = 0;
     for (let i = 0; i < 8; i++) this.particles.spawn({ x: w.player.x, y: w.player.y - 8, vx: (Math.random() - .5) * 160, vy: -Math.random() * 140, life: 0.6, col: '#ffffff', size: 2, fade: true, g: 300 });
